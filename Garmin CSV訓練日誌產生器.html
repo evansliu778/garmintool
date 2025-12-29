@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GARMIN 訓練數據分析工具 (全地形相容版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/heroicons/2.1.3/24/outline/heroicons.min.css">
+    <style>
+        /* 使用 Google Fonts 提供的 Inter 字體，並為繁體中文設定備用字體 */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #f8fafc; /* 使用更柔和的背景色 */
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.success { background: #10b981; } /* 綠色成功提示 */
+        .toast.error { background: #ef4444; } /* 紅色錯誤提示 */
+        .drop-zone-active {
+            border-color: #3b82f6; /* 藍色高亮 */
+            background-color: #eff6ff;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div class="border-b px-6 py-5 bg-gray-50">
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-blue-600">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
+                    </svg>
+                    GARMIN 訓練數據分析工具
+                </h1>
+                <p class="text-gray-600 mt-2">支援戶外跑步（公里）與田徑場模式（公尺），自動轉換為 AI 分析格式。</p>
+            </div>
+            
+            <div class="p-6 space-y-6">
+                <!-- 步驟一：檔案上傳 -->
+                <div>
+                    <label class="block text-sm font-medium mb-2 text-gray-700" for="csv-upload">1. 上傳 CSV 檔案</label>
+                    <label id="drop-zone" for="csv-upload" class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <svg class="w-10 h-10 mb-4 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                            </svg>
+                            <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">點擊此處上傳</span> 或將檔案拖曳至此</p>
+                            <p id="file-name-display" class="text-xs text-gray-500 font-medium"></p>
+                        </div>
+                        <input id="csv-upload" type="file" class="hidden" accept=".csv" />
+                    </label>
+                </div>
+
+                <!-- 數據預覽區 -->
+                <div id="data-previews" class="hidden space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium mb-2 text-gray-700">2. 數據預覽</label>
+                        <!-- 總計數據預覽 -->
+                        <div id="summary-data-preview">
+                            <h3 class="text-md font-semibold mb-2 text-gray-800">自動識別的總計數據</h3>
+                            <div id="summary-data-container" class="p-4 bg-blue-50 rounded-lg border border-blue-200"></div>
+                        </div>
+                    </div>
+                    <!-- 分段數據預覽 -->
+                    <div id="lap-data-preview">
+                         <h3 class="text-md font-semibold mb-2 text-gray-800">分段數據</h3>
+                        <div id="lap-data-container" class="grid gap-4 max-h-96 overflow-y-auto p-4 bg-slate-50 rounded-lg border"></div>
+                    </div>
+                </div>
+
+                <!-- 步驟三：補充資訊 -->
+                <div id="info-form" class="hidden space-y-6">
+                    <div><label class="block text-sm font-medium text-gray-700">3. 填寫補充資訊</label></div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-2" for="date">訓練日期</label>
+                            <input id="date" type="date" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-2" for="type">訓練類型</label>
+                            <input id="type" type="text" placeholder="例如: 田徑場間歇跑" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-2" for="temperature">氣溫 (°C)</label>
+                            <input id="temperature" type="number" placeholder="例如: 25" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" for="description">訓練說明</label>
+                        <textarea id="description" placeholder="描述這次訓練的目標和內容 (例如: 400m x 10 間歇)" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-2" for="feeling">體感說明</label>
+                        <textarea id="feeling" placeholder="描述訓練時的身體感受、疲勞程度、心情等" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                </div>
+
+                <!-- 操作按鈕 -->
+                <div id="action-buttons" class="hidden flex flex-wrap gap-4 items-center">
+                    <button id="generate-output" class="bg-blue-600 text-white px-5 py-2.5 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-transform active:scale-95 font-semibold">
+                        產生格式化輸出
+                    </button>
+                    <button id="copy-output" class="hidden bg-gray-600 text-white px-5 py-2.5 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-transform active:scale-95 flex items-center gap-2 font-semibold">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                        複製到剪貼簿
+                    </button>
+                    <button id="clear-all" class="bg-red-500 text-white px-5 py-2.5 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-transform active:scale-95 font-semibold">
+                        全部清除
+                    </button>
+                </div>
+
+                <!-- 格式化輸出預覽 -->
+                <div id="formatted-output-container" class="hidden">
+                    <label class="block text-sm font-medium mb-2 text-gray-700">格式化輸出 (可直接貼給 AI 分析)</label>
+                    <textarea id="formatted-output" readonly rows="20" class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 font-mono text-sm shadow-inner"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知容器 -->
+    <div id="toast-container"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // --- 統一宣告所有會用到的 DOM 元素 ---
+            const csvUpload = document.getElementById('csv-upload');
+            const dropZone = document.getElementById('drop-zone');
+            const fileNameDisplay = document.getElementById('file-name-display');
+            const dateInput = document.getElementById('date');
+            const typeInput = document.getElementById('type');
+            const tempInput = document.getElementById('temperature');
+            const descInput = document.getElementById('description');
+            const feelingInput = document.getElementById('feeling');
+            const dataPreviews = document.getElementById('data-previews');
+            const lapContainer = document.getElementById('lap-data-container');
+            const summaryContainer = document.getElementById('summary-data-container');
+            const actionButtons = document.getElementById('action-buttons');
+            const generateBtn = document.getElementById('generate-output');
+            const copyBtn = document.getElementById('copy-output');
+            const clearBtn = document.getElementById('clear-all');
+            const outputContainer = document.getElementById('formatted-output-container');
+            const outputTextarea = document.getElementById('formatted-output');
+            const infoForm = document.getElementById('info-form');
+            
+            let lapData = [];
+            let summaryData = null;
+
+            // --- 初始化與重置功能 ---
+            function initialize() {
+                dateInput.value = new Date().toISOString().split('T')[0];
+            }
+
+            function resetUI() {
+                csvUpload.value = '';
+                fileNameDisplay.textContent = '';
+                dataPreviews.classList.add('hidden');
+                actionButtons.classList.add('hidden');
+                outputContainer.classList.add('hidden');
+                copyBtn.classList.add('hidden');
+                infoForm.classList.add('hidden');
+                lapContainer.innerHTML = '';
+                summaryContainer.innerHTML = '';
+                outputTextarea.value = '';
+                typeInput.value = '';
+                tempInput.value = '';
+                descInput.value = '';
+                feelingInput.value = '';
+                lapData = [];
+                summaryData = null;
+                showToast('已清除所有資料', 'success');
+            }
+
+            // --- Toast 通知功能 ---
+            function showToast(message, type = 'success') {
+                const toastContainer = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.textContent = message;
+                toastContainer.appendChild(toast);
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
+            }
+            
+            // --- 核心 CSV 解析功能 ---
+            function parseCSV(csvText) {
+                const lines = csvText.split(/\r?\n/).filter(line => line.trim());
+                if (lines.length < 2) throw new Error("CSV 檔案內容過少或格式不正確。");
+
+                const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+                const data = [];
+
+                const regex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+
+                for (let i = 1; i < lines.length; i++) {
+                    const values = lines[i].split(regex).map(v => {
+                        let value = v.trim();
+                        if (value.startsWith('"') && value.endsWith('"')) {
+                            value = value.substring(1, value.length - 1);
+                        }
+                        return value.replace(/""/g, '"');
+                    });
+                    
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index] || ''; 
+                    });
+                    data.push(row);
+                }
+
+                if (data.length === 0) throw new Error("無法從 CSV 中解析出任何有效數據。");
+                return data;
+            }
+
+            // --- 檔案處理 ---
+            function handleFile(file) {
+                if (!file) return;
+                if (file.type !== 'text/csv' && !file.name.toLowerCase().endsWith('.csv')) {
+                    showToast('檔案格式錯誤，請上傳 .csv 檔案', 'error');
+                    return;
+                }
+                fileNameDisplay.textContent = `已選擇: ${file.name}`;
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        let allParsedData = parseCSV(e.target.result);
+                        if(allParsedData.length > 0) {
+                            summaryData = allParsedData.pop(); // 最後一列是總計
+                            lapData = allParsedData; // 其餘是分段
+                        }
+                        displayData(lapData, summaryData);
+                        showToast(`成功解析 ${lapData.length} 筆分段數據與 1 筆總計數據`, 'success');
+                    } catch(error) {
+                        showToast(`解析失敗: ${error.message}`, 'error');
+                        resetUI();
+                    }
+                };
+                reader.onerror = function() {
+                    showToast('讀取檔案時發生錯誤', 'error');
+                };
+                reader.readAsText(file, 'UTF-8');
+            }
+
+            // --- 渲染數據列表 ---
+            function createDataCard(row) {
+                 const firstColumnKey = Object.keys(row)[0] || '欄位1';
+                 const firstColumnValue = row[firstColumnKey] || 'N/A';
+                 
+                 // 修正：同時檢查「公里」、「公尺」與舊版「m」
+                 let distanceDisplay = 'N/A';
+                 if (row['距離公里'] && row['距離公里'] !== '--') {
+                     distanceDisplay = `${row['距離公里']}公里`;
+                 } else if (row['距離公尺'] && row['距離公尺'] !== '--') {
+                     distanceDisplay = `${row['距離公尺']}公尺`;
+                 } else if (row['距離m'] && row['距離m'] !== '--') {
+                     distanceDisplay = `${row['距離m']}m`;
+                 }
+
+                 return `
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-1 text-sm text-gray-600 flex-grow">
+                        <span><strong class="text-gray-800">${firstColumnKey}:</strong> ${firstColumnValue}</span>
+                        <span><strong class="text-gray-800">時間:</strong> ${row['時間'] || 'N/A'}</span>
+                        <span><strong class="text-gray-800">距離:</strong> ${distanceDisplay}</span>
+                        <span><strong class="text-gray-800">均速:</strong> ${row['平均配速分/公里'] || 'N/A'}</span>
+                        <span><strong class="text-gray-800">均心率:</strong> ${row['平均心率bpm'] || 'N/A'}bpm</span>
+                    </div>
+                `;
+            }
+            
+            function displayData(laps, summary) {
+                lapContainer.innerHTML = '';
+                laps.forEach(row => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-white p-3 rounded-lg shadow-sm border';
+                    card.innerHTML = createDataCard(row);
+                    lapContainer.appendChild(card);
+                });
+
+                summaryContainer.innerHTML = '';
+                if(summary){
+                    summaryContainer.innerHTML = createDataCard(summary);
+                }
+
+                dataPreviews.classList.remove('hidden');
+                infoForm.classList.remove('hidden');
+                actionButtons.classList.remove('hidden');
+            }
+
+            // --- 產生最終輸出文字 ---
+            function generateFormattedText(laps, summary) {
+                 const formatData = (dataRow) => {
+                    // 修正：產生報告時，同時支援「公里」與「公尺」
+                    let distanceDisplay = "無";
+                    if (dataRow['距離公里'] && dataRow['距離公里'] !== '--') {
+                        distanceDisplay = `${dataRow['距離公里']}公里`;
+                    } else if (dataRow['距離公尺'] && dataRow['距離公尺'] !== '--') {
+                        distanceDisplay = `${dataRow['距離公尺']}公尺`;
+                    } else if (dataRow['距離m'] && dataRow['距離m'] !== '--') {
+                        distanceDisplay = `${dataRow['距離m']}m`;
+                    }
+                    
+                    return {
+                        時間: dataRow['時間'] || "無", 
+                        距離: distanceDisplay,
+                        平均配速: dataRow['平均配速分/公里'] || "無", 
+                        平均心率: dataRow['平均心率bpm'] || "無",
+                        最大心率: dataRow['最大心率bpm'] || "無", 
+                        平均步頻: dataRow['平均步頻每分鐘步數'] || "無",
+                        平均步幅: dataRow['平均步幅公尺'] || dataRow['平均步幅m'] || "無",
+                        平均觸地時間: dataRow['平均觸地時間ms'] || "無",
+                        總爬升: dataRow['總爬升公尺'] || dataRow['總攀爬高度m'] || "無",
+                        總下降: dataRow['總下降公尺'] || dataRow['總下降m'] || "無",
+                    };
+                 };
+
+                const lapDetails = laps.map((lap) => {
+                    const f = formatData(lap);
+                    const lapNumber = lap['計圈'];
+                    if (!lapNumber || isNaN(parseInt(lapNumber,10))) return null; 
+                    return `第 ${lapNumber} 段:
+  - 時間: ${f.時間}
+  - 距離: ${f.距離}
+  - 平均配速: ${f.平均配速} 分/公里
+  - 平均心率: ${f.平均心率} bpm
+  - 最大心率: ${f.最大心率} bpm
+  - 平均步頻: ${f.平均步頻} spm
+  - 平均步幅: ${f.平均步幅} m
+  - 平均觸地時間: ${f.平均觸地時間} ms
+  - 總爬升: ${f.總爬升} m
+  - 總下降: ${f.總下降} m`;
+                }).filter(Boolean).join('\n\n'); 
+                
+                let summaryDetails = '未指定總計數據';
+                if (summary) {
+                    const s = formatData(summary);
+                    summaryDetails = `- 總時間: ${s.時間}
+- 總距離: ${s.距離}
+- 平均配速: ${s.平均配速} 分/公里
+- 平均心率: ${s.平均心率} bpm
+- 最大心率: ${s.最大心率} bpm
+- 平均步頻: ${s.平均步頻} spm
+- 平均步幅: ${s.平均步幅} m
+- 平均觸地時間: ${s.平均觸地時間} ms
+- 總爬升: ${s.總爬升} m
+- 總下降: ${s.總下降} m`;
+                }
+                
+                const basicInfo = {
+                    訓練日期: dateInput.value || '未填寫', 訓練類型: typeInput.value || '未填寫',
+                    氣溫: tempInput.value ? tempInput.value + '°C' : '未填寫',
+                    訓練說明: descInput.value || '未填寫', 體感說明: feelingInput.value || '未填寫'
+                };
+
+                return `訓練記錄分析
+====================
+[基本資訊]
+訓練日期: ${basicInfo.訓練日期}
+訓練類型: ${basicInfo.訓練類型}
+氣溫: ${basicInfo.氣溫}
+訓練說明: ${basicInfo.訓練說明}
+體感說明: ${basicInfo.體感說明}
+
+[分段數據]
+${lapDetails || '無分段數據'}
+
+[總計數據]
+${summaryDetails}`;
+            }
+
+            function copyToClipboard(text) {
+                const tempTextarea = document.createElement('textarea');
+                tempTextarea.value = text;
+                document.body.appendChild(tempTextarea);
+                tempTextarea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast('已複製到剪貼簿!', 'success');
+                } catch (err) {
+                    showToast('複製失敗，請手動複製', 'error');
+                }
+                document.body.removeChild(tempTextarea);
+            }
+
+            // --- 事件監聽器設定 ---
+            csvUpload.addEventListener('change', (e) => handleFile(e.target.files[0]));
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
+            });
+            ['dragenter', 'dragover'].forEach(eventName => dropZone.addEventListener(eventName, () => dropZone.classList.add('drop-zone-active')));
+            ['dragleave', 'drop'].forEach(eventName => dropZone.addEventListener(eventName, () => dropZone.classList.remove('drop-zone-active')));
+            dropZone.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
+
+            generateBtn.addEventListener('click', () => {
+                if(!summaryData){
+                     showToast('沒有找到總計數據，無法產生報告', 'error');
+                    return;
+                }
+
+                const validLapData = lapData.filter(row => {
+                    const lapValue = row['計圈'];
+                    return lapValue && !isNaN(parseInt(lapValue, 10));
+                });
+
+                const output = generateFormattedText(validLapData, summaryData);
+                outputTextarea.value = output;
+                outputContainer.classList.remove('hidden');
+                copyBtn.classList.remove('hidden');
+                outputTextarea.scrollTop = 0;
+            });
+
+            copyBtn.addEventListener('click', () => copyToClipboard(outputTextarea.value));
+            clearBtn.addEventListener('click', resetUI);
+
+            // --- 頁面載入後執行 ---
+            initialize();
+        });
+    </script>
+</body>
+</html>
